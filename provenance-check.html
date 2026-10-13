@@ -1,0 +1,541 @@
+<title>Photo Provenance Check</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Source+Sans+3:wght@400;600&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: a light table. Two film-frame inputs on top, the verdict as a slate, then the evidence sheet. */
+:root{
+  --paper:#EDF0F2; --surface:#FFFFFF; --ink:#15191D; --muted:#5A6570; --line:#CBD2D8;
+  --accent:#B5301C; --accent-soft:#F6DDD8; --good:#1D7748; --good-soft:#D9EFE3;
+  --warn:#9A6100; --warn-soft:#F5E8CF; --none:#6B7680; --none-soft:#E2E6E9;
+  --display:"Barlow Condensed","Arial Narrow",Arial,sans-serif;
+  --body:"Source Sans 3","Segoe UI",system-ui,sans-serif;
+  --mono:"JetBrains Mono",ui-monospace,Menlo,Consolas,monospace;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --paper:#111518; --surface:#1A1F24; --ink:#E5E9EC; --muted:#99A4AD; --line:#2E363D;
+  --accent:#E8604A; --accent-soft:#3A201B; --good:#53C38D; --good-soft:#163024;
+  --warn:#E2AB3E; --warn-soft:#352914; --none:#93A0AA; --none-soft:#232A30; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --paper:#111518; --surface:#1A1F24; --ink:#E5E9EC; --muted:#99A4AD; --line:#2E363D;
+  --accent:#E8604A; --accent-soft:#3A201B; --good:#53C38D; --good-soft:#163024;
+  --warn:#E2AB3E; --warn-soft:#352914; --none:#93A0AA; --none-soft:#232A30; color-scheme:dark}
+*{box-sizing:border-box}
+body{background:var(--paper);color:var(--ink);font:16px/1.5 var(--body);padding-inline:16px;padding-block:20px 48px}
+.wrap{max-width:1080px;margin:0 auto;display:grid;gap:28px}
+h1,h2,h3{font-family:var(--display);font-weight:700;letter-spacing:.01em;margin:0;text-wrap:balance;line-height:1.05}
+h1{font-size:clamp(2.2rem,6vw,3.4rem);text-transform:uppercase}
+h2{font-size:1.6rem;text-transform:uppercase}
+h3{font-size:1.15rem;font-weight:600;text-transform:uppercase;letter-spacing:.04em}
+p{margin:0}
+.lede{max-width:62ch;color:var(--muted);font-size:1.05rem}
+.eyebrow{font:500 .75rem/1 var(--mono);letter-spacing:.12em;text-transform:uppercase;color:var(--accent)}
+header{display:grid;gap:10px;padding-top:8px}
+.privacy{display:inline-flex;gap:8px;align-items:center;font:500 .8rem var(--mono);color:var(--muted)}
+.privacy::before{content:"";width:8px;height:8px;border-radius:50%;background:var(--good)}
+.mono{font-family:var(--mono);font-variant-numeric:tabular-nums}
+
+/* inputs */
+.inputs{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:16px}
+.frame{position:relative;background:var(--surface);border:1px solid var(--line);padding:14px;display:grid;gap:10px;min-width:0}
+.frame-head{display:flex;justify-content:space-between;align-items:baseline;gap:8px;flex-wrap:wrap}
+.frame-tag{font:500 .72rem var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--muted)}
+.drop{position:relative;display:grid;place-items:center;aspect-ratio:3/2;max-width:100%;background:var(--paper);border:1.5px dashed var(--line);cursor:pointer;overflow:hidden;transition:border-color .15s}
+.drop:hover,.drop.over,.drop:focus-within{border-color:var(--accent)}
+.drop img{width:100%;height:100%;object-fit:contain;display:block}
+.drop.has .hint{display:none}
+.drop .hint{position:absolute;inset:auto 0 0 0;padding:8px 10px;font-size:.85rem;color:var(--muted);background:linear-gradient(transparent,var(--surface));text-align:center}
+.drop input{position:absolute;inset:0;opacity:0;cursor:pointer}
+.fname{font:400 .78rem var(--mono);color:var(--muted);overflow-wrap:anywhere}
+.badge-ex{font:600 .68rem var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--warn);background:var(--warn-soft);padding:3px 7px}
+.actions{display:flex;flex-wrap:wrap;gap:10px;align-items:center}
+button{font:600 .95rem var(--body);border:1px solid var(--ink);background:var(--ink);color:var(--paper);padding:10px 16px;cursor:pointer}
+button.ghost{background:transparent;color:var(--ink);border-color:var(--line)}
+button:hover{filter:brightness(1.1)}
+button:focus-visible,a:focus-visible,.drop:focus-within,input:focus-visible,textarea:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+button:disabled{opacity:.5;cursor:default}
+.status{font:400 .85rem var(--mono);color:var(--muted)}
+
+/* verdict slate */
+.slate{background:var(--surface);border:1px solid var(--line);display:grid;grid-template-columns:auto 1fr;min-width:0}
+.slate-mark{writing-mode:vertical-rl;transform:rotate(180deg);font:700 .8rem var(--display);letter-spacing:.18em;text-transform:uppercase;padding:14px 8px;color:var(--surface);background:var(--none)}
+.slate[data-level="strong"] .slate-mark{background:var(--good)}
+.slate[data-level="probable"] .slate-mark{background:var(--good)}
+.slate[data-level="weak"] .slate-mark{background:var(--warn)}
+.slate[data-level="none"] .slate-mark{background:var(--none)}
+.slate-body{padding:18px 20px;display:grid;gap:14px;min-width:0}
+.verdict{font:700 clamp(1.8rem,5vw,2.6rem)/1 var(--display);text-transform:uppercase}
+.slate[data-level="strong"] .verdict,.slate[data-level="probable"] .verdict{color:var(--good)}
+.slate[data-level="weak"] .verdict{color:var(--warn)}
+.slate[data-level="none"] .verdict{color:var(--none)}
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px 20px}
+.stat{display:grid;gap:2px;border-top:1px solid var(--line);padding-top:8px}
+.stat b{font:500 1.35rem var(--mono);font-variant-numeric:tabular-nums}
+.stat span{font-size:.82rem;color:var(--muted)}
+
+/* views */
+.views{display:grid;grid-template-columns:minmax(0,3fr) minmax(0,2fr);gap:16px}
+@media (max-width:760px){.views{grid-template-columns:minmax(0,1fr)}}
+.view{background:var(--surface);border:1px solid var(--line);padding:14px;display:grid;gap:10px;align-content:start;min-width:0}
+.view canvas{width:100%;height:auto;display:block;background:var(--paper)}
+.legend{display:flex;flex-wrap:wrap;gap:6px 16px;font-size:.82rem;color:var(--muted)}
+.legend i{display:inline-block;width:10px;height:10px;margin-right:6px;vertical-align:-1px}
+.toggle{display:flex;gap:0;border:1px solid var(--line);width:max-content;max-width:100%}
+.toggle button{background:transparent;color:var(--muted);border:0;padding:6px 12px;font-size:.85rem}
+.toggle button[aria-pressed="true"]{background:var(--ink);color:var(--paper)}
+
+/* findings */
+.sheet{background:var(--surface);border:1px solid var(--line);padding:20px;display:grid;gap:18px;min-width:0}
+.findings{list-style:none;margin:0;padding:0;display:grid}
+.findings li{display:grid;grid-template-columns:110px minmax(0,1fr);gap:4px 16px;padding:12px 0;border-top:1px solid var(--line)}
+@media (max-width:520px){.findings li{grid-template-columns:minmax(0,1fr)}}
+.chip{font:600 .7rem var(--mono);letter-spacing:.08em;text-transform:uppercase;padding:3px 8px;width:max-content;height:max-content}
+.chip.yes{background:var(--accent-soft);color:var(--accent)}
+.chip.no{background:var(--none-soft);color:var(--none)}
+.chip.info{background:var(--good-soft);color:var(--good)}
+.findings strong{font-weight:600}
+.findings p{color:var(--muted);font-size:.95rem}
+.tablewrap{overflow-x:auto}
+table{border-collapse:collapse;width:100%;min-width:480px;font-size:.9rem}
+th,td{text-align:left;padding:8px 10px;border-top:1px solid var(--line);vertical-align:top}
+th{font:500 .72rem var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+td.k{color:var(--muted);white-space:nowrap}
+td.v{font-family:var(--mono);font-size:.82rem;overflow-wrap:anywhere}
+td.same{color:var(--good)}
+.form{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px}
+label{display:grid;gap:4px;font-size:.85rem;color:var(--muted)}
+input[type=text],input[type=url],input[type=date]{font:400 .95rem var(--body);padding:9px 10px;border:1px solid var(--line);background:var(--paper);color:var(--ink);width:100%;min-width:0}
+textarea{font:400 .82rem/1.55 var(--mono);width:100%;min-height:280px;padding:12px;border:1px solid var(--line);background:var(--paper);color:var(--ink);resize:vertical}
+.notes{display:grid;gap:10px;color:var(--muted);font-size:.95rem;max-width:72ch}
+.notes h3{color:var(--ink)}
+.notes ul{margin:0;padding-left:1.2em;display:grid;gap:6px}
+.loading{display:flex;gap:10px;align-items:center}
+.loading::before{content:"";width:14px;height:14px;border:2px solid var(--line);border-top-color:var(--accent);border-radius:50%;animation:spin .9s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+@media (prefers-reduced-motion:reduce){.loading::before{animation:none}}
+@media print{.inputs,.actions,.notes,.privacy{display:none}body{background:#fff}}
+footer{font-size:.82rem;color:var(--muted)}
+</style>
+
+<div class="wrap">
+  <header>
+    <span class="eyebrow">Evidence aid for photographers</span>
+    <h1>Photo Provenance Check</h1>
+    <p class="lede">Found your photo somewhere it shouldn't be? Put your original beside the copy. This tool finds exactly where the copy sits inside your frame, even after cropping, resizing, mirroring or colour edits, and writes up what it found.</p>
+    <span class="privacy">Runs entirely in your browser. Images are never uploaded.</span>
+  </header>
+
+  <section class="inputs" aria-label="Images to compare">
+    <div class="frame">
+      <div class="frame-head"><h3>Your original</h3><span class="frame-tag">Frame A</span></div>
+      <label class="drop" id="dropA"><img id="imgA" alt="Your original photo"><span class="hint">Tap or drop your original (full-size JPEG, PNG or WebP)</span><input id="fileA" type="file" accept="image/*" aria-label="Choose your original photo"></label>
+      <div class="frame-head"><span class="fname" id="nameA">—</span><span class="badge-ex" id="exA" hidden>Example</span></div>
+    </div>
+    <div class="frame">
+      <div class="frame-head"><h3>Copy you found</h3><span class="frame-tag">Frame B</span></div>
+      <label class="drop" id="dropB"><img id="imgB" alt="The copy you found"><span class="hint">Tap or drop the copy you found online</span><input id="fileB" type="file" accept="image/*" aria-label="Choose the copy you found"></label>
+      <div class="frame-head"><span class="fname" id="nameB">—</span><span class="badge-ex" id="exB" hidden>Example</span></div>
+    </div>
+  </section>
+  <div class="actions">
+    <button id="run" disabled>Compare images</button>
+    <button id="sample" class="ghost">Load example pair</button>
+    <span class="status" id="status"><span class="loading">Loading the matching engine (about 10 MB, first visit only)…</span></span>
+  </div>
+
+  <section id="results" hidden aria-live="polite" style="display:grid;gap:16px">
+    <div class="slate" id="slate" data-level="none">
+      <div class="slate-mark" id="slateMark">Result</div>
+      <div class="slate-body">
+        <div class="verdict" id="verdict">—</div>
+        <p id="verdictText"></p>
+        <div class="stats" id="stats"></div>
+      </div>
+    </div>
+
+    <div class="views">
+      <div class="view">
+        <div class="frame-head"><h3>Where the copy sits in your frame</h3></div>
+        <canvas id="cvA" width="10" height="10" aria-label="Your original with the copied region outlined"></canvas>
+        <div class="legend"><span><i style="background:var(--accent)"></i>Area used in the copy</span><span><i style="background:#ffd23f"></i>Matched points</span></div>
+      </div>
+      <div class="view">
+        <div class="frame-head"><h3>The copy</h3>
+          <div class="toggle" role="group" aria-label="Copy view"><button id="vPlain" aria-pressed="true">Copy</button><button id="vDiff" aria-pressed="false">Changes</button></div></div>
+        <canvas id="cvB" width="10" height="10" aria-label="The copy you found"></canvas>
+        <div class="legend" id="diffLegend"><span>“Changes” highlights areas that differ from your original after tone is matched. Bright patches suggest added or removed content.</span></div>
+      </div>
+    </div>
+
+    <div class="sheet">
+      <h2>What was found</h2>
+      <ul class="findings" id="findings"></ul>
+    </div>
+
+    <div class="sheet">
+      <h2>File details</h2>
+      <p class="lede" style="font-size:.95rem">Camera metadata in your original is strong supporting evidence. Copies online usually have it stripped.</p>
+      <div class="tablewrap"><table><thead><tr><th>Field</th><th>Your original</th><th>Copy found</th></tr></thead><tbody id="meta"></tbody></table></div>
+    </div>
+
+    <div class="sheet">
+      <h2>Evidence summary</h2>
+      <div class="form">
+        <label>Photographer<input id="fPhot" type="text" placeholder="Your name"></label>
+        <label>Where the copy was found<input id="fUrl" type="url" placeholder="https://…"></label>
+        <label>Date found<input id="fDate" type="date"></label>
+      </div>
+      <textarea id="report" readonly aria-label="Evidence summary text"></textarea>
+      <div class="actions"><button id="copy">Copy summary</button><button id="print" class="ghost" hidden>Print / save PDF</button><span class="status" id="copyMsg"></span></div>
+      <p class="status">Keep a screenshot of the page where you found the copy, with its address and date visible, alongside this summary.</p>
+    </div>
+  </section>
+
+  <section class="sheet notes">
+    <h2>How it works</h2>
+    <p>The tool picks out thousands of distinctive points in each image (corners, edges, texture) and describes each one in a way that survives resizing and compression. It then looks for a single scale, rotation and position that lines up many of those points at once. Unrelated photos produce almost no consistent alignments, so dozens of aligned points mean the copy was made from your picture.</p>
+    <p>Once aligned, your original is reprojected onto the copy, tone is matched, and the remaining differences are mapped. That is how added text, logos or retouching show up.</p>
+    <h3>Limits</h3>
+    <ul>
+      <li>This is a comparison aid, not a legal opinion. Consult a lawyer or your national photographers' association before acting on it.</li>
+      <li>It handles crops, resizing, mirroring, small rotations, compression and colour or tone edits. Heavy perspective warps, strong stylisation or AI re-rendering can defeat it.</li>
+      <li>Very small copies (thumbnails under about 200 px) or near-featureless scenes such as plain sky may give an inconclusive result.</li>
+      <li>Browsers can't open RAW or HEIC files. Export a full-size JPEG of your original first, and keep the RAW as your primary proof of authorship.</li>
+    </ul>
+  </section>
+  <footer>Free to use and share. Matching uses OpenCV (Apache 2.0); metadata reading uses exifr (MIT).</footer>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/exifr@7.1.3/dist/full.umd.js"></script>
+<script>
+// 4-DOF similarity (scale, rotation, translation) RANSAC + least-squares refit
+function fitSim(src,dst,idx){let n=idx.length,mx=0,my=0,nx=0,ny=0;for(const i of idx){mx+=src[2*i];my+=src[2*i+1];nx+=dst[2*i];ny+=dst[2*i+1];}
+  mx/=n;my/=n;nx/=n;ny/=n;let sxx=0,a1=0,b1=0;for(const i of idx){const x=src[2*i]-mx,y=src[2*i+1]-my,u=dst[2*i]-nx,v=dst[2*i+1]-ny;sxx+=x*x+y*y;a1+=x*u+y*v;b1+=x*v-y*u;}
+  if(sxx<1e-9)return null;const a=a1/sxx,b=b1/sxx;return[a,-b,nx-a*mx+b*my,b,a,ny-b*mx-a*my];}
+function ransacSim(src,dst,thr,iters){const N=src.length/2;let best=null;let seed=12345;const rnd=()=>{seed=(seed*1103515245+12345)&0x7fffffff;return seed/0x7fffffff;};
+  const inl=A=>{const o=[];for(let i=0;i<N;i++){const x=src[2*i],y=src[2*i+1];const dx=A[0]*x+A[1]*y+A[2]-dst[2*i],dy=A[3]*x+A[4]*y+A[5]-dst[2*i+1];if(dx*dx+dy*dy<thr*thr)o.push(i);}return o;};
+  for(let t=0;t<iters;t++){const i=Math.floor(rnd()*N),j=Math.floor(rnd()*N);if(i===j)continue;const A=fitSim(src,dst,[i,j]);if(!A)continue;
+    const sc=Math.hypot(A[0],A[3]);if(sc<0.02||sc>50)continue;const o=inl(A);if(!best||o.length>best.idx.length)best={A,idx:o};}
+  if(!best||best.idx.length<4)return null;
+  for(let k=0;k<3;k++){const A=fitSim(src,dst,best.idx);if(!A)break;const o=inl(A);if(o.length<best.idx.length)break;best={A,idx:o};}
+  return{A:best.A,idx:best.idx,n:best.idx.length};}
+// Core analysis engine (shared with browser). cv = OpenCV.js
+function analyze(cv, origRGBA, suspRGBA, opts={}){
+  const MAXS=opts.maxSide||1400;
+  function prep(m){const s=Math.min(1,MAXS/Math.max(m.cols,m.rows));const g=new cv.Mat();cv.cvtColor(m,g,cv.COLOR_RGBA2GRAY);
+    if(s<1){const r=new cv.Mat();cv.resize(g,r,new cv.Size(Math.round(m.cols*s),Math.round(m.rows*s)),0,0,cv.INTER_AREA);g.delete();return{g:r,s};}return{g,s};}
+  const O=prep(origRGBA);
+  function detect(g){const orb=new cv.ORB(4000);const kp=new cv.KeyPointVector(),d=new cv.Mat();orb.detectAndCompute(g,new cv.Mat(),kp,d);orb.delete();return{kp,d};}
+  const fo=detect(O.g);
+  function tryMatch(flip){
+    const S=prep(suspRGBA);if(flip){const f=new cv.Mat();cv.flip(S.g,f,1);S.g.delete();S.g=f;}
+    const fs=detect(S.g);
+    const bf=new cv.BFMatcher(cv.NORM_HAMMING,false);const mv=new cv.DMatchVectorVector();
+    let res={inliers:0,flip,good:0,sKp:fs.kp.size(),oKp:fo.kp.size()};
+    if(fs.d.rows>=2&&fo.d.rows>=2){bf.knnMatch(fs.d,fo.d,mv,2);
+      const src=[],dst=[];
+      for(let i=0;i<mv.size();i++){const m=mv.get(i);if(m.size()<2)continue;const a=m.get(0),b=m.get(1);
+        if(a.distance<0.78*b.distance){const p=fs.kp.get(a.queryIdx).pt,q=fo.kp.get(a.trainIdx).pt;src.push(p.x/S.s,p.y/S.s);dst.push(q.x/O.s,q.y/O.s);}}
+      res.good=src.length/2;
+      if(src.length>=6){const R=ransacSim(src,dst,4.0,3000);
+        if(R){res.inliers=R.n;res.A=R.A;res.pairs=R.idx.map(i=>[src[2*i],src[2*i+1],dst[2*i],dst[2*i+1]]);}}}
+    bf.delete();mv.delete();fs.kp.delete();fs.d.delete();S.g.delete();return res;}
+  let r=tryMatch(false);
+  if(r.inliers<25){const r2=tryMatch(true);if(r2.inliers>r.inliers)r=r2;}
+  fo.kp.delete();fo.d.delete();O.g.delete();
+  const out={inliers:r.inliers,goodMatches:r.good,flipped:r.flip,suspectKeypoints:r.sKp,originalKeypoints:r.oKp,pairs:r.pairs||[]};
+  if(!r.A)return out;
+  const [a,b,tx,c,d,ty]=r.A; // maps suspect(full-res, flipped if flip) -> original
+  out.scale=Math.hypot(a,c);out.rotationDeg=Math.atan2(c,a)*180/Math.PI;out.A=r.A;
+  const W=suspRGBA.cols,H=suspRGBA.rows;
+  out.corners=[[0,0],[W,0],[W,H],[0,H]].map(([x,y])=>[a*x+b*y+tx,c*x+d*y+ty]);
+  // aligned comparison: warp original into suspect frame
+  const det=a*d-b*c,ia=d/det,ib=-b/det,ic=-c/det,id=a/det;const inv=cv.matFromArray(2,3,cv.CV_64F,[ia,ib,-(ia*tx+ib*ty),ic,id,-(ic*tx+id*ty)]);
+  const warped=new cv.Mat();cv.warpAffine(origRGBA,warped,inv,new cv.Size(W,H),cv.INTER_AREA,cv.BORDER_CONSTANT,new cv.Scalar(0,0,0,0));
+  let susp=suspRGBA; if(r.flip){susp=new cv.Mat();cv.flip(suspRGBA,susp,1);}
+  // per-channel linear color normalisation (removes brightness/contrast/saturation-ish edits), then diff
+  const n=W*H;const valid=new Uint8Array(n);let vc=0;{const a=warped.data;for(let i=0;i<n;i++){if(a[4*i+3]>250){valid[i]=1;vc++;}}}
+  // light blur on both so resampling/JPEG edge noise doesn't read as an edit
+  const k=Math.max(3,(Math.round(Math.max(W,H)/400)|1));const wb=new cv.Mat(),sb=new cv.Mat();
+  cv.GaussianBlur(warped,wb,new cv.Size(k,k),0);cv.GaussianBlur(susp,sb,new cv.Size(k,k),0);
+  const wd=wb.data,sd=sb.data;
+  const fit=[];for(let ch=0;ch<3;ch++){let sx=0,sy=0,sxx=0,sxy=0;for(let i=0;i<n;i++)if(valid[i]){const x=wd[4*i+ch],y=sd[4*i+ch];sx+=x;sy+=y;sxx+=x*x;sxy+=x*y;}
+    const k=(vc*sxy-sx*sy)/(vc*sxx-sx*sx||1);fit.push([k,(sy-k*sx)/vc]);}
+  const diff=new Float32Array(n);let sum=0,num=0,gx=0,gy=0,gxx=0,gyy=0,gxy=0;
+  for(let i=0;i<n;i++){if(!valid[i])continue;let e=0,lo=0,ls=0;for(let ch=0;ch<3;ch++){const p=fit[ch][0]*wd[4*i+ch]+fit[ch][1];e+=Math.abs(p-sd[4*i+ch]);lo+=p;ls+=sd[4*i+ch];}
+    diff[i]=e/3;sum+=e/3;num++;gx+=lo;gy+=ls;gxx+=lo*lo;gyy+=ls*ls;gxy+=lo*ls;}
+  out.coverage=vc/n; out.meanAbsDiff=sum/Math.max(1,num);
+  out.correlation=(num*gxy-gx*gy)/Math.sqrt((num*gxx-gx*gx)*(num*gyy-gy*gy));
+  out.colorFit=fit; out.diff=diff; out.diffW=W; out.diffH=H; out.valid=valid;
+  // Blockwise anomaly: 16x16 grid, flag blocks with diff >> median
+  const G=16,bw=W/G,bh=H/G,blocks=[];for(let gy2=0;gy2<G;gy2++)for(let gx2=0;gx2<G;gx2++){let s=0,c2=0;
+    for(let y=Math.floor(gy2*bh);y<Math.floor((gy2+1)*bh);y++)for(let x=Math.floor(gx2*bw);x<Math.floor((gx2+1)*bw);x++){const i=y*W+x;if(valid[i]){s+=diff[i];c2++;}}
+    blocks.push(c2>bw*bh*0.5?s/c2:null);}
+  const vals=blocks.filter(v=>v!=null).sort((p,q)=>p-q);const med=vals[Math.floor(vals.length/2)]||0;
+  out.blockMedian=med;out.blocks=blocks;out.grid=G;out.alteredBlocks=blocks.filter(v=>v!=null&&v>Math.max(med*3,med+18)).length;
+  inv.delete();warped.delete();wb.delete();sb.delete();if(r.flip)susp.delete();
+  return out;
+}
+
+
+</script>
+<script>
+const $=id=>document.getElementById(id);
+const state={A:null,B:null,result:null,view:'plain'};
+const MAX_A=2400, MAX_B=1600;
+const css=n=>getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+
+// ---------- OpenCV loading ----------
+let cvPromise=null;
+function loadCV(){
+  if(cvPromise)return cvPromise;
+  cvPromise=new Promise((resolve,reject)=>{
+    const s=document.createElement('script');
+    s.src='https://cdn.jsdelivr.net/npm/@techstark/opencv-js@4.10.0-release.1/dist/opencv.js';
+    s.async=true;
+    s.onerror=()=>reject(new Error('The matching engine could not be downloaded. Check your connection and reload the page.'));
+    s.onload=()=>{
+      let done=false;const finish=c=>{if(!done&&c&&c.Mat){done=true;window.cvReal=c;resolve(true);}}; // resolve with a plain value: the emscripten module is a thenable and would recurse forever
+      const c=window.cv;
+      if(c&&c.Mat)return finish(c);
+      if(c&&typeof c.then==='function'&&!(c instanceof Promise)){try{c.then(m=>finish(m||c));}catch(e){}}else if(c instanceof Promise){c.then(m=>finish(m),()=>{});}
+      if(c)c.onRuntimeInitialized=()=>finish(window.cv&&window.cv.Mat?window.cv:c);
+      const t0=Date.now();(function poll(){if(done)return;const w=window.cv;if(w&&w.Mat)return finish(w);
+        if(Date.now()-t0>60000)return reject(new Error('The matching engine took too long to start. Reload the page to try again.'));setTimeout(poll,150);})();
+    };
+    document.head.appendChild(s);
+  });
+  return cvPromise;
+}
+
+// ---------- image intake ----------
+async function decode(blob){
+  try{return await createImageBitmap(blob,{imageOrientation:'from-image'});}
+  catch(e){return await new Promise((res,rej)=>{const im=new Image();im.onload=()=>res(im);im.onerror=()=>rej(new Error('This file could not be opened as an image. Use JPEG, PNG or WebP.'));im.src=URL.createObjectURL(blob);});}
+}
+function toCanvas(bmp,max){const w=bmp.width,h=bmp.height,s=Math.min(1,max/Math.max(w,h));
+  const c=document.createElement('canvas');c.width=Math.round(w*s);c.height=Math.round(h*s);c.getContext('2d').drawImage(bmp,0,0,c.width,c.height);return{c,s};}
+async function sha256(buf){const d=await crypto.subtle.digest('SHA-256',buf);return [...new Uint8Array(d)].map(b=>b.toString(16).padStart(2,'0')).join('');}
+async function readMeta(file){try{return await exifr.parse(file,{tiff:true,exif:true,xmp:true,iptc:true,ifd0:true,translateValues:true,reviveValues:true})||{};}catch(e){return {};}}
+
+async function setImage(slot,file,isExample){
+  const st=$('status');
+  try{
+    const buf=await file.arrayBuffer();
+    const bmp=await decode(file);
+    const max=slot==='A'?MAX_A:MAX_B;const {c,s}=toCanvas(bmp,max);
+    const [hash,meta]=await Promise.all([sha256(buf),isExample?Promise.resolve({}):readMeta(file)]);
+    state[slot]={file,name:file.name||(slot==='A'?'original':'copy'),size:file.size,type:file.type,w:bmp.width,h:bmp.height,canvas:c,scale:s,hash,meta,example:!!isExample};
+    $('img'+slot).src=c.toDataURL('image/jpeg',.85);
+    $('name'+slot).textContent=`${state[slot].name} · ${bmp.width}×${bmp.height}px · ${fmtBytes(file.size)}`;
+    $('ex'+slot).hidden=!isExample;$('drop'+slot).classList.add('has');
+    if(bmp.close)bmp.close();
+  }catch(e){st.textContent=e.message;}
+  updateRun();
+}
+function fmtBytes(n){return n>1e6?(n/1e6).toFixed(1)+' MB':Math.round(n/1e3)+' KB';}
+function updateRun(){$('run').disabled=!(state.A&&state.B&&window.cvReal);}
+
+for(const slot of ['A','B']){
+  const inp=$('file'+slot),drop=$('drop'+slot);
+  inp.addEventListener('change',()=>{if(inp.files[0])setImage(slot,inp.files[0],false).then(autoRun);});
+  drop.addEventListener('dragover',e=>{e.preventDefault();drop.classList.add('over');});
+  drop.addEventListener('dragleave',()=>drop.classList.remove('over'));
+  drop.addEventListener('drop',e=>{e.preventDefault();drop.classList.remove('over');const f=e.dataTransfer.files[0];if(f)setImage(slot,f,false).then(autoRun);});
+}
+function autoRun(){if(state.A&&state.B&&window.cvReal)run();}
+
+// ---------- example pair (procedural landscape) ----------
+function rng(seed){return()=>{seed=(seed*1664525+1013904223)>>>0;return seed/4294967296;};}
+async function makeExample(){
+  const W=1800,H=1200,c=document.createElement('canvas');c.width=W;c.height=H;const g=c.getContext('2d');const r=rng(7);
+  const sky=g.createLinearGradient(0,0,0,H*.6);sky.addColorStop(0,'#2b4a7a');sky.addColorStop(.6,'#e58c5a');sky.addColorStop(1,'#f4c27a');g.fillStyle=sky;g.fillRect(0,0,W,H);
+  g.fillStyle='#fff3d6';g.beginPath();g.arc(1230,560,60,0,7);g.fill();
+  for(let i=0;i<40;i++){g.fillStyle=`rgba(255,${200+r()*50|0},${170+r()*60|0},${.15+r()*.3})`;g.beginPath();g.ellipse(r()*W,60+r()*380,60+r()*200,8+r()*18,0,0,7);g.fill();}
+  const ridges=[['#5b4a6b',520,140],['#3f3b57',600,110],['#2a3042',690,80]];
+  for(const [col,base,amp] of ridges){g.fillStyle=col;g.beginPath();g.moveTo(0,H);let y=base;
+    for(let x=0;x<=W;x+=6){y+= (r()-.5)*amp*.18; y+=(base-y)*.04; g.lineTo(x,y-Math.abs(Math.sin(x/170))*amp*.5);} g.lineTo(W,H);g.fill();}
+  const lake=g.createLinearGradient(0,760,0,H);lake.addColorStop(0,'#c7826a');lake.addColorStop(1,'#1d2a3c');g.fillStyle=lake;g.fillRect(0,760,W,H-760);
+  for(let i=0;i<220;i++){g.strokeStyle=`rgba(255,220,180,${.08+r()*.25})`;g.lineWidth=1+r()*2;const x=r()*W,y=770+r()*420;g.beginPath();g.moveTo(x,y);g.lineTo(x+20+r()*90,y);g.stroke();}
+  for(let i=0;i<70;i++){const x=r()*W,y=740+r()*60,h=40+r()*140;g.fillStyle='#141a22';g.beginPath();g.moveTo(x,y-h);g.lineTo(x-10-h*.15,y);g.lineTo(x+10+h*.15,y);g.fill();}
+  for(let i=0;i<60;i++){g.fillStyle=`rgba(${20+r()*40|0},${20+r()*30|0},${25+r()*30|0},.9)`;g.beginPath();g.ellipse(r()*W,1000+r()*200,20+r()*60,10+r()*25,r(),0,7);g.fill();}
+  const id=g.getImageData(0,0,W,H),d=id.data;for(let i=0;i<d.length;i+=4){const n=(r()-.5)*14;d[i]+=n;d[i+1]+=n;d[i+2]+=n;}g.putImageData(id,0,0);
+  const orig=await new Promise(res=>c.toBlob(res,'image/jpeg',.93));
+  // the "infringing" copy: crop, downsize, warmer & punchier, their own watermark
+  const cw=980,ch=650,cx=620,cy=300,ow=720,oh=Math.round(ow*ch/cw);
+  const c2=document.createElement('canvas');c2.width=ow;c2.height=oh;const g2=c2.getContext('2d');
+  g2.filter='brightness(1.12) saturate(1.35) contrast(1.05)';g2.drawImage(c,cx,cy,cw,ch,0,0,ow,oh);g2.filter='none';
+  g2.fillStyle='rgba(255,255,255,.85)';g2.fillRect(ow-238,oh-58,222,40);g2.fillStyle='#222';g2.font='600 20px sans-serif';g2.fillText('© travelpix-daily',ow-226,oh-31);
+  const copy=await new Promise(res=>c2.toBlob(res,'image/jpeg',.72));
+  return [new File([orig],'example-original.jpg',{type:'image/jpeg'}),new File([copy],'example-copy-found-online.jpg',{type:'image/jpeg'})];
+}
+$('sample').addEventListener('click',loadSample);
+async function loadSample(){const [a,b]=await makeExample();await setImage('A',a,true);await setImage('B',b,true);
+  $('fPhot').value='';$('fUrl').value='';autoRun();}
+
+// ---------- analysis ----------
+$('run').addEventListener('click',run);
+async function run(){
+  const cv=window.cvReal;if(!cv||!state.A||!state.B)return;
+  $('run').disabled=true;$('status').innerHTML='<span class="loading">Comparing…</span>';
+  await new Promise(r=>setTimeout(r,30));
+  let mA,mB;
+  try{
+    mA=cv.matFromImageData(state.A.canvas.getContext('2d').getImageData(0,0,state.A.canvas.width,state.A.canvas.height));
+    mB=cv.matFromImageData(state.B.canvas.getContext('2d').getImageData(0,0,state.B.canvas.width,state.B.canvas.height));
+    const t=performance.now();
+    const r=analyze(cv,mA,mB,{maxSide:1400});r.ms=performance.now()-t;
+    state.result=r;render();
+    $('status').textContent=`Compared in ${(r.ms/1000).toFixed(1)} s.`;
+  }catch(e){console.error(e);$('status').textContent='The comparison failed: '+(e.message||e)+'. Try smaller images.';}
+  finally{if(mA)mA.delete();if(mB)mB.delete();updateRun();}
+}
+
+function level(r){
+  if(r.inliers>=40)return 'strong';
+  if(r.inliers>=15)return (r.correlation!=null&&r.correlation<.3)?'weak':'probable';
+  if(r.inliers>=8)return 'weak';
+  return 'none';
+}
+const LV={strong:['Strong match','Match'],probable:['Probable match','Match'],weak:['Inconclusive','Unclear'],none:['No match found','No match']};
+
+function geometry(r){
+  const A=state.A,B=state.B;
+  // corners in original full-res pixels
+  const c=r.corners.map(([x,y])=>[x/A.scale,y/A.scale]);
+  const xs=c.map(p=>p[0]),ys=c.map(p=>p[1]);
+  const box={x0:Math.min(...xs),y0:Math.min(...ys),x1:Math.max(...xs),y1:Math.max(...ys)};
+  const cl={x0:Math.max(0,box.x0),y0:Math.max(0,box.y0),x1:Math.min(A.w,box.x1),y1:Math.min(A.h,box.y1)};
+  const regionW=Math.hypot(c[1][0]-c[0][0],c[1][1]-c[0][1]),regionH=Math.hypot(c[3][0]-c[0][0],c[3][1]-c[0][1]);
+  const areaFrac=Math.max(0,(cl.x1-cl.x0)*(cl.y1-cl.y0))/(A.w*A.h);
+  const linear=B.w/regionW; // copy px per original px
+  return {c,box,cl,regionW,regionH,areaFrac,linear};
+}
+
+function render(){
+  const r=state.result,A=state.A,B=state.B;$('results').hidden=false;
+  const lv=level(r);$('slate').dataset.level=lv;$('verdict').textContent=LV[lv][0];$('slateMark').textContent=LV[lv][1];
+  let g=null;if(r.A&&lv!=='none')g=geometry(r);state.geom=g;
+  const vt=$('verdictText');
+  if(lv==='strong'||lv==='probable'){
+    vt.textContent=`${r.inliers} distinctive points in the copy line up with your original under a single ${r.flipped?'mirrored ':''}scale-and-position transform. That doesn't happen between unrelated photographs; the copy was made from this image or from a file derived from it.`;
+  }else if(lv==='weak'){
+    vt.textContent=`Only ${r.inliers} points line up. That is not enough to be confident. Try a larger version of the copy, or check you've picked the right original.`;
+  }else vt.textContent='No consistent alignment between the two images. They are probably different photographs, or the copy has been changed too heavily to match.';
+  const stats=[];
+  stats.push([r.inliers,'aligned points']);
+  if(g){stats.push([(g.areaFrac*100).toFixed(0)+'%','of your frame used']);
+    stats.push([(g.linear*100).toFixed(0)+'%','of your resolution']);
+    if(r.correlation!=null)stats.push([r.correlation.toFixed(3),'tone-matched correlation']);}
+  $('stats').innerHTML=stats.map(([v,l])=>`<div class="stat"><b>${v}</b><span>${l}</span></div>`).join('');
+  drawA();drawB();renderFindings(lv,g);renderMeta();buildReport();
+}
+
+function drawA(){
+  const A=state.A,r=state.result,g=state.geom,cvs=$('cvA');const src=A.canvas;
+  const s=Math.min(1,1100/src.width);cvs.width=Math.round(src.width*s);cvs.height=Math.round(src.height*s);
+  const x=cvs.getContext('2d');x.drawImage(src,0,0,cvs.width,cvs.height);
+  if(!g)return;
+  const k=A.scale*s;const P=g.c.map(([a,b])=>[a*k,b*k]);
+  x.save();x.fillStyle='rgba(10,12,15,.55)';x.beginPath();x.rect(0,0,cvs.width,cvs.height);x.moveTo(P[0][0],P[0][1]);for(let i=3;i>=1;i--)x.lineTo(P[i][0],P[i][1]);x.closePath();x.fill('evenodd');x.restore();
+  const acc=css('--accent')||'#B5301C';x.strokeStyle=acc;x.lineWidth=Math.max(2,cvs.width/400);x.beginPath();P.forEach((p,i)=>i?x.lineTo(p[0],p[1]):x.moveTo(p[0],p[1]));x.closePath();x.stroke();
+  // crop marks at corners
+  const L=Math.max(10,cvs.width/45);x.lineWidth=Math.max(2,cvs.width/300);x.strokeStyle='#fff';
+  for(const [px,py] of P){x.beginPath();x.moveTo(px-L,py);x.lineTo(px+L,py);x.moveTo(px,py-L);x.lineTo(px,py+L);x.stroke();}
+  x.fillStyle='#ffd23f';const ds=s*(1);for(const p of r.pairs.slice(0,600)){x.beginPath();x.arc(p[2]*s,p[3]*s,Math.max(1.8,cvs.width/450),0,7);x.fill();}
+}
+function drawB(){
+  const B=state.B,r=state.result,cvs=$('cvB');const src=B.canvas;cvs.width=src.width;cvs.height=src.height;
+  const x=cvs.getContext('2d');x.drawImage(src,0,0);
+  const canDiff=!!r.diff;$('vDiff').disabled=!canDiff;if(!canDiff)state.view='plain';
+  $('vPlain').setAttribute('aria-pressed',state.view==='plain');$('vDiff').setAttribute('aria-pressed',state.view==='diff');
+  if(state.view!=='diff'||!canDiff)return;
+  const W=r.diffW,H=r.diffH,id=x.getImageData(0,0,W,H),d=id.data;
+  for(let i=0;i<W*H;i++){
+    const xi=r.flipped?(W-1-(i%W))+Math.floor(i/W)*W:i;
+    const gray=(d[4*i]*.3+d[4*i+1]*.59+d[4*i+2]*.11)*.35;
+    if(!r.valid[xi]){d[4*i]=d[4*i+1]=d[4*i+2]=gray*.5;continue;}
+    const v=Math.min(1,Math.max(0,(r.diff[xi]-r.blockMedian*2-6)/35));
+    d[4*i]=gray+v*(255-gray);d[4*i+1]=gray+v*(70-gray)*.6;d[4*i+2]=gray*(1-v);
+  }
+  x.putImageData(id,0,0);
+}
+$('vPlain').addEventListener('click',()=>{state.view='plain';if(state.result)drawB();});
+$('vDiff').addEventListener('click',()=>{state.view='diff';if(state.result)drawB();});
+
+function renderFindings(lv,g){
+  const r=state.result,A=state.A,B=state.B,F=[];
+  const add=(chip,cls,title,text)=>F.push(`<li><span class="chip ${cls}">${chip}</span><div><strong>${title}</strong><p>${text}</p></div></li>`);
+  if(!g){add('—','no','No alignment','Without a confident match, no edits can be measured.');$('findings').innerHTML=F.join('');return;}
+  const cropped=g.areaFrac<.97;
+  const x0=Math.round(g.cl.x0),y0=Math.round(g.cl.y0),cw=Math.round(g.cl.x1-g.cl.x0),ch=Math.round(g.cl.y1-g.cl.y0);
+  add(cropped?'Cropped':'Full frame',cropped?'yes':'no',cropped?`Cropped to ${(g.areaFrac*100).toFixed(1)}% of your frame`:'Uses your whole frame',
+    cropped?`The copy shows the region from (${x0}, ${y0}) spanning ${cw}×${ch} px of your ${A.w}×${A.h} px original. Your file shows ${(1/g.areaFrac).toFixed(1)}× as much of the scene as the copy, including everything outside its edges. That wider view is something only the original's owner would normally have.`:'The copy covers essentially the entire frame of your original.');
+  const ratio=g.linear;
+  add(ratio<.97?'Downsized':ratio>1.03?'Upscaled':'Same size',ratio<.97||ratio>1.03?'yes':'no',
+    ratio<.97?`Reduced to ${(ratio*100).toFixed(0)}% of your resolution`:ratio>1.03?`Enlarged to ${(ratio*100).toFixed(0)}% of your resolution`:'Same resolution as your original',
+    `The copy is ${B.w}×${B.h} px. The same part of the scene in your original is ${Math.round(g.regionW)}×${Math.round(g.regionH)} px${ratio<.97?`, so you hold about ${(1/(ratio*ratio)).toFixed(1)}× as many pixels of it`:''}.`);
+  add(r.flipped?'Mirrored':'Not mirrored',r.flipped?'yes':'no',r.flipped?'Flipped left to right':'Not flipped',r.flipped?'The copy is a mirror image of your photo. This is a common trick to evade reverse image search.':'Orientation matches your original.');
+  const rot=r.rotationDeg||0;if(Math.abs(rot)>.5)add('Rotated','yes',`Rotated ${Math.abs(rot).toFixed(1)}°`,'The copy has been turned relative to your original.');
+  const tone=r.colorFit.some(([k,b])=>Math.abs(k-1)>.06||Math.abs(b)>8);
+  add(tone?'Tone edit':'Tone kept',tone?'yes':'no',tone?'Colour or exposure adjusted':'Colours unchanged',
+    tone?`Brightness, contrast or colour balance differs from your original (channel gain R ${r.colorFit[0][0].toFixed(2)}, G ${r.colorFit[1][0].toFixed(2)}, B ${r.colorFit[2][0].toFixed(2)}). After compensating for that, the images still correlate at ${r.correlation.toFixed(3)} on a 0–1 scale.`:`After alignment the images correlate at ${r.correlation.toFixed(3)} on a 0–1 scale.`);
+  const alt=r.alteredBlocks;const pct=(alt/(r.grid*r.grid)*100);
+  add(alt>0?'Altered':'Unaltered',alt>0?'yes':'no',alt>0?`Local changes in about ${pct.toFixed(0)}% of the copy`:'No local changes detected',
+    alt>0?'Some areas differ from your original by much more than the rest of the image: typically an added watermark or text, removed signature, or retouching. Switch the copy view to “Changes” to see where.':'Once aligned and tone-matched, the copy differs from your original only by compression noise.');
+  $('findings').innerHTML=F.join('');
+}
+
+const META=[['Camera make','Make'],['Camera model','Model'],['Camera serial','BodySerialNumber','SerialNumber','InternalSerialNumber'],['Lens','LensModel','Lens'],['Date taken','DateTimeOriginal','CreateDate'],['Artist / creator','Artist','creator','Creator','By-line'],['Copyright','Copyright','rights','Rights','CopyrightNotice'],['Software','Software','CreatorTool'],['Unique image ID','ImageUniqueID','DocumentID','OriginalDocumentID'],['Exposure','ExposureTime'],['Aperture','FNumber'],['ISO','ISO']];
+function mv(m,keys){for(const k of keys){let v=m&&m[k];if(v==null)continue;if(Array.isArray(v))v=v.join(', ');if(typeof v==='object'&&!(v instanceof Date))v=v.value||v.lang||JSON.stringify(v);if(v instanceof Date)v=v.toISOString().replace('T',' ').slice(0,19);if(typeof v==='number'&&keys[0]==='ExposureTime'&&v<1)v='1/'+Math.round(1/v)+' s';return String(v);}return null;}
+function renderMeta(){
+  const A=state.A,B=state.B,rows=[];const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+  const row=(k,a,b)=>{const same=a!=null&&a===b;rows.push(`<tr><td class="k">${k}</td><td class="v${same?' same':''}">${a==null?'<span style="color:var(--muted)">none</span>':esc(a)}</td><td class="v${same?' same':''}">${b==null?'<span style="color:var(--muted)">none</span>':esc(b)}</td></tr>`);};
+  row('Pixel size',`${A.w}×${A.h} (${(A.w*A.h/1e6).toFixed(1)} MP)`,`${B.w}×${B.h} (${(B.w*B.h/1e6).toFixed(2)} MP)`);
+  row('File size',fmtBytes(A.size),fmtBytes(B.size));
+  for(const [label,...keys] of META){const a=mv(A.meta,keys),b=mv(B.meta,keys);if(a!=null||b!=null)row(label,a,b);}
+  row('SHA-256',A.hash,B.hash);
+  if(A.example)rows.push(`<tr><td class="k">Note</td><td class="v" colspan="2">The example images are generated in your browser and carry no camera metadata. Your own originals usually will.</td></tr>`);
+  $('meta').innerHTML=rows.join('');
+}
+
+function buildReport(){
+  const r=state.result,A=state.A,B=state.B,g=state.geom;if(!r)return;const lv=level(r);
+  const ph=$('fPhot').value.trim(),url=$('fUrl').value.trim(),dt=$('fDate').value;
+  const L=[];const now=new Date();
+  L.push('IMAGE COMPARISON SUMMARY');L.push('Prepared with Photo Provenance Check on '+now.toISOString().slice(0,10));L.push('');
+  if(ph)L.push('Photographer: '+ph);if(url)L.push('Copy found at: '+url);if(dt)L.push('Date found: '+dt);if(ph||url||dt)L.push('');
+  L.push('ORIGINAL (photographer\'s file)');L.push(`  File: ${A.name}`);L.push(`  Size: ${A.w} x ${A.h} px, ${fmtBytes(A.size)}`);
+  for(const [label,...keys] of META.slice(0,9)){const v=mv(A.meta,keys);if(v)L.push(`  ${label}: ${v}`);}
+  L.push(`  SHA-256: ${A.hash}`);L.push('');
+  L.push('COPY FOUND');L.push(`  File: ${B.name}`);L.push(`  Size: ${B.w} x ${B.h} px, ${fmtBytes(B.size)}`);
+  const bm=META.slice(0,9).map(([l,...k])=>[l,mv(B.meta,k)]).filter(x=>x[1]);
+  if(bm.length)bm.forEach(([l,v])=>L.push(`  ${l}: ${v}`));else L.push('  Camera / author metadata: none present');
+  L.push(`  SHA-256: ${B.hash}`);L.push('');
+  L.push('RESULT: '+LV[lv][0].toUpperCase());
+  L.push(`  ${r.inliers} distinctive feature points in the copy align with the original under a single geometric transform (${r.goodMatches} candidate matches tested).`);
+  if(g){
+    L.push(`  The copy corresponds to the region of the original from (${Math.round(g.cl.x0)}, ${Math.round(g.cl.y0)}) to (${Math.round(g.cl.x1)}, ${Math.round(g.cl.y1)}) px, i.e. ${(g.areaFrac*100).toFixed(1)}% of the original frame.`);
+    L.push(`  Scale: the copy is ${(g.linear*100).toFixed(0)}% of the original's linear resolution. The original holds ${Math.round(g.regionW)} x ${Math.round(g.regionH)} px of the copied area.`);
+    if(r.flipped)L.push('  The copy is mirrored left to right.');
+    if(Math.abs(r.rotationDeg)>.5)L.push(`  The copy is rotated ${r.rotationDeg.toFixed(1)} degrees.`);
+    L.push(`  After alignment and tone matching, pixel correlation is ${r.correlation.toFixed(3)} (1.000 = identical).`);
+    if(r.alteredBlocks>0)L.push(`  Localised alterations detected in about ${(r.alteredBlocks/(r.grid*r.grid)*100).toFixed(0)}% of the copy (e.g. added text or watermark, retouching).`);
+    L.push('');L.push('INTERPRETATION');
+    L.push('  The copy contains a subset of the original\'s scene at equal or lower resolution. The original extends beyond the copy\'s edges and carries more detail, which is consistent with the copy having been derived from the original and not the reverse.');
+  }
+  L.push('');L.push('Method: ORB feature matching with RANSAC similarity estimation, followed by reprojection and per-channel tone normalisation. This summary is a technical comparison, not a legal opinion.');
+  $('report').value=L.join('\n');
+}
+['fPhot','fUrl','fDate'].forEach(id=>$(id).addEventListener('input',buildReport));
+$('copy').addEventListener('click',()=>{const t=$('report');const ok=()=>$('copyMsg').textContent='Copied.';
+  try{navigator.clipboard.writeText(t.value).then(ok,()=>{t.select();$('copyMsg').textContent='Selected. Press Ctrl+C or ⌘C to copy.';});}catch(e){t.select();$('copyMsg').textContent='Selected. Press Ctrl+C or ⌘C to copy.';}});
+// Printing only works when this page is opened on its own, not embedded
+if(window.self===window.top){$('print').hidden=false;$('print').addEventListener('click',()=>window.print());}
+try{$('fDate').value=new Date().toISOString().slice(0,10);}catch(e){}
+
+// ---------- boot ----------
+loadSample();
+loadCV().then(()=>{$('status').textContent='Ready. Add your own images, or look at the example below.';updateRun();autoRun();})
+  .catch(e=>{$('status').textContent=e.message;});
+</script>
